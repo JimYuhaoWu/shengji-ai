@@ -177,13 +177,9 @@ class RuleBasedAgent(BaseAgent):
     def _get_our_hand(self, state: GameState) -> list[Card]:
         """Extract our hand from game state.
 
-        Note: We only know our own cards. Other players' hands are unknown.
+        Our hand is the only non-empty hand (due to privacy filtering from server).
         """
-        if state.hands:
-            # Our hand is stored at our player index
-            # But we don't know our index from GameState alone
-            # This is a limitation - we'll return the first non-empty hand
-            for hand in state.hands:
-                if hand:
-                    return list(hand)
+        for hand in state.hands:
+            if hand:
+                return list(hand)
         return []

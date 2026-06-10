@@ -56,11 +56,15 @@ class BaseAgent(ABC):
                             f"Joined room {msg['room_id']} as player {msg['player_id']}"
                         )
                     elif msg_type == "state_update":
-                        legal_actions = msg.get("legal_actions", [])
-                        if legal_actions:
-                            # It's our turn
+                        is_our_turn = msg["current_player"] == player_id
+                        legal_actions_list = msg.get("legal_actions")
+                        legal_actions_truncated = msg.get("legal_actions_truncated", False)
+
+                        if is_our_turn and legal_actions_list is not None:
+                            # We have legal actions - normal case
                             state = deserialize_state(msg)
-                            actions = [deserialize_action(a) for a in legal_actions]
+                            actions = [deserialize_action(a) for a in legal_actions_list]
+
                             try:
                                 loop = asyncio.get_event_loop()
                                 action = await asyncio.wait_for(
@@ -72,6 +76,12 @@ class BaseAgent(ABC):
                             except asyncio.TimeoutError:
                                 logger.error(f"act() exceeded {timeout}s timeout")
                                 raise
+
+                        elif is_our_turn and legal_actions_truncated:
+                            # KITTY phase: legal_actions is truncated, can't use act()
+                            # For now, just skip - this requires special handling
+                            logger.warning("KITTY phase: legal_actions truncated, skipping act()")
+                            # TODO: Handle KITTY with semantic message
                     elif msg_type == "player_connected":
                         logger.info(f"Player {msg['player_id']} connected")
                     elif msg_type == "player_disconnected":
