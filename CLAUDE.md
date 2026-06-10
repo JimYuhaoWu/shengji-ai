@@ -12,6 +12,34 @@ A collection of AI agents for 拖拉机. Each agent is a Python WebSocket client
 4. **No game logic in agents.** If you need to reason about what's legal, use `shengji-engine` functions — import them, don't reimplement them.
 5. **Training code lives in `training/` only.** Inference agents in `*_agent.py` files must work without training infrastructure.
 
+## Coding Standards
+
+### 1. Simplicity First
+- **Minimum code that solves the problem.** No speculative abstractions or features beyond what's asked.
+- **No error handling for impossible scenarios.** Trust internal code and framework guarantees; validate only at system boundaries (user input, external APIs).
+- **Three similar lines = time to extract.** One-off code stays inline.
+- **Ask: "Is this overcomplicated?"** If yes, rewrite it.
+
+### 2. Surgical Changes
+- **Touch only what you must.** Don't improve adjacent code unless requested.
+- **Match existing style.** Even if you'd do it differently.
+- **Remove only YOUR orphans.** If your changes make an import/variable/function unused, delete it. Don't clean up pre-existing dead code.
+- **Every changed line traces to the user's request.** No drive-by refactoring.
+
+### 3. Think Before Coding
+- **State assumptions explicitly.** Uncertain about interpretation? Ask before implementing.
+- **Surface tradeoffs.** Don't pick silently between equally valid approaches.
+- **Don't hide confusion.** If something is unclear, stop and name what's confusing.
+- **Simplify when possible.** If 50 lines can do what 200 does, rewrite it.
+
+### 4. Goal-Driven Execution
+- **Define success criteria first.** Transform tasks into verifiable checks:
+  - "Add WebSocket endpoint" → test connection, message receipt, broadcast
+  - "Fix disconnect bug" → write test for reconnect, make it pass
+  - "Implement room expiry" → test stale room cleanup, pass it
+- **State brief plans for multi-step work.** Format: `1. [Step] → verify: [check]`
+- **Loop until verified.** Success = tests pass + behavior matches spec.
+
 ## Base Agent WebSocket Loop
 
 ```python
