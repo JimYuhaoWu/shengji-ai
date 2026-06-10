@@ -1,6 +1,7 @@
 """Rule-based agent with hand-coded heuristics."""
 
-from shengji import GameState, Action, ActionType, Card, Suit, Rank
+from shengji import GameState, Action, ActionType, Suit, Rank
+from shengji.card import Card
 
 from shengji_ai.base_agent import BaseAgent
 

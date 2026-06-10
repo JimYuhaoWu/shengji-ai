@@ -1,6 +1,7 @@
 """Protocol for serializing/deserializing game state and actions."""
 
-from shengji import Action, ActionType, Card, Suit, Rank, GamePhase, GameState, TrumpBid
+from shengji import Action, ActionType, Suit, Rank, GamePhase, GameState, TrumpBid
+from shengji.card import Card
 
 # Reverse lookups from wire values to enums
 SUIT_BY_VALUE = {s.value: s for s in Suit}
