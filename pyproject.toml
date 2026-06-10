@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shengji-ai"
+version = "0.1.0"
+description = "AI agents for 拖拉机 (Sheng Ji) card game"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{name = "Jim Wu", email = "yuhaow9412@gmail.com"}]
+
+dependencies = [
+    "websockets>=12.0",
+    "numpy>=1.24",
+    "torch>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+]
+
+[project.scripts]
+shengji-ai-run = "shengji_ai.run:main"
+shengji-ai-game = "shengji_ai.run_game:main"
+
+[tool.setuptools]
+packages = ["shengji_ai", "shengji_ai.mcts", "shengji_ai.douzero", "shengji_ai.training"]
