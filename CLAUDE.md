@@ -40,7 +40,11 @@ A collection of AI agents for 拖拉机. Each agent is a Python WebSocket client
 - **State brief plans for multi-step work.** Format: `1. [Step] → verify: [check]`
 - **Loop until verified.** Success = tests pass + behavior matches spec.
 
-## Base Agent WebSocket Loop
+## Base Agent WebSocket Loop (as implemented, verified against the real server)
+
+> The server sends NO `your_turn` message. It broadcasts a `state_update` to every
+> player on every change; it's your turn when `msg["current_player"] == player_id`.
+> Everything below was verified by playing full games against a live `shengji-server`.
 
 ```python
 # base_agent.py
@@ -48,23 +52,63 @@ class BaseAgent:
     def act(self, state: GameState, legal_actions: list[Action]) -> Action:
         raise NotImplementedError
 
-    async def run(self, server_url: str, room_id: str, player_id: int):
+    def choose_kitty_bury(self, state, hand):   # KITTY only; default buries first 6
+        return hand[:6]
+
+    async def run(self, server_url, room_id, player_id, timeout=5.0):
         uri = f"{server_url}/ws/{room_id}/{player_id}"
         async with websockets.connect(uri) as ws:
             async for raw in ws:
                 msg = json.loads(raw)
-                if msg["type"] == "your_turn":
-                    state = deserialize_state(msg["state"])
-                    legal_actions = deserialize_actions(msg["legal_actions"])
-                    action = await asyncio.get_event_loop().run_in_executor(
-                        None, self.act, state, legal_actions
-                    )
-                    await ws.send(json.dumps(action_to_dict(action)))
+                if msg.get("type") == "state_update":
+                    if msg["current_player"] != player_id:
+                        continue
+                    legal = msg.get("legal_actions")
+                    if legal:                           # normal turn (non-empty list)
+                        state = deserialize_state(msg)
+                        actions = [deserialize_action(a) for a in legal]
+                        action = await loop.run_in_executor(None, self.act, state, actions)
+                        await ws.send(json.dumps(action_to_dict(action)))
+                    elif msg.get("legal_actions_truncated"):   # KITTY (~906k options)
+                        state = deserialize_state(msg)
+                        bury = self.choose_kitty_bury(state, list(state.hands[player_id]))
+                        await ws.send(json.dumps({"type": "take_kitty", "cards": [...]}))
+                    # empty legal_actions (e.g. SCORING) → nothing to do
+                elif msg.get("type") == "game_over":
+                    return                              # stop; let callers proceed
 ```
+
+### Wire protocol gotchas (each one bit us; all now handled)
+
+1. **No `your_turn` message.** Drive off `state_update` + `current_player`.
+2. **KITTY's `legal_actions` is truncated** (`legal_actions_truncated: true`, the list
+   omitted). Don't call `act()` — call `choose_kitty_bury()` and send a semantic
+   `take_kitty` message with 6 card dicts.
+3. **Empty `legal_actions` (`[]`) in SCORING** is not actionable. Guard on truthiness,
+   not `is not None`, or `random.choice([])` will crash.
+4. **`run()` must return on `game_over`,** otherwise `asyncio.gather()` over six agents
+   hangs forever and multi-episode runners stall after game one.
+5. **Rooms must exist before connecting.** The server closes unknown rooms with code
+   4004, so `run_game` creates each room via `POST /rooms` first.
+
+### Message/card encodings (from shengji-server)
+
+- Card dict: `{"suit": "H", "rank": "7", "deck_id": 0}` (suit/rank are the enum `.value`s).
+- `Card` is imported from `shengji.card`, NOT the top-level `shengji` package.
+- Actions sent to the server use semantic messages: `play_cards`, `bid_trump`,
+  `pass_trump`, `take_kitty`, `call_helper` (see `protocol.action_to_dict`).
+- The server's privacy filter means only our own hand is populated; opponents'
+  hands come back empty, so `deserialize_state` leaves them as empty tuples.
 
 ## Agent Build Order
 
 Build agents in this order — each is tested against the previous:
+
+**Current status:** `RandomAgent` and `RuleBasedAgent` are implemented and verified
+end-to-end (full six-player games to SCORING against a live server). `RuleBasedAgent`
+plays legally but its heuristics are still shallow (passes trump, buries the first 6
+kitty cards, simple lead/follow). `MCTSAgent` and `DouZeroAgent` are placeholders that
+return the first legal action. Training (`training/`) is a placeholder.
 
 ### 1. RandomAgent (start here)
 ```python
@@ -223,23 +267,31 @@ Known MPS limitations:
 
 ## Testing Agents
 
+The engine is functional/immutable: `game.step(state, action)` returns `(state, info)`
+and never mutates its input. There is no 4-tuple and no `done` flag — check
+`info.get("game_over")` or `state.phase`.
+
 ```python
 # test_random_agent.py
-def test_random_agent_always_returns_legal_action():
-    from shengji.game import Game
+def test_random_agent_returns_legal_action():
+    from shengji import Game
     game = Game(num_players=6)
     state = game.reset()
     agent = RandomAgent()
     for _ in range(1000):
         action = agent.act(state, state.legal_actions)
         assert action in state.legal_actions
-        state, _, done, _ = game.step(action)
-        if done: state = game.reset()
+        state, info = game.step(state, action)
+        if info.get("game_over"):
+            state = game.reset()
 
 # test_rule_based_agent.py
 def test_never_plays_red_five_voluntarily():
     # Set up a state where the agent has ♥5 and other options
     # Verify RuleBasedAgent doesn't play ♥5 unless forced
+
+# End-to-end (manual): e2e_test.py drives six real agents through their run()
+# loop against a live shengji-server and confirms a full game reaches SCORING.
 ```
 
 ## Common Mistakes to Avoid
