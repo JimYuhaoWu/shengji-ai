@@ -301,3 +301,46 @@ def test_never_plays_red_five_voluntarily():
 - **DouZero needs separate models per role** — dealer strategy differs from farmer strategy; train three networks
 - **Reward is per-player, not per-team** — even helpers get their own level changes
 - **Never block the async event loop** — wrap `act()` in `run_in_executor` as shown in base_agent.py
+
+## Session Log — 2026-06-11 (known bug + plan, no code change yet)
+
+No agent code changed this session, but a live playtest exposed a latent deadlock
+worth fixing before the next round of agent work.
+
+### Known bug — KITTY branch keys off truncation, not phase (deadlock risk)
+
+`base_agent.py`'s `run()` loop decides "this is the KITTY bury turn" from
+`legal_actions_truncated`, **regardless of phase**:
+
+```python
+if is_our_turn and legal_actions_list:      # normal turn
+    ...
+elif is_our_turn and legal_actions_truncated:  # assumes KITTY -> send take_kitty
+    ...
+```
+
+The server sets `legal_actions_truncated` whenever a phase has more than 500 legal
+actions. Today that's only KITTY (~906k), so it usually works. But if any other
+phase ever truncates, the agent sends a `take_kitty` while the server is **not** in
+KITTY; the server rejects it as `"Illegal move"`, the agent doesn't retry, and the
+seat is stuck (the rest of the table waits forever on that player). We hit exactly
+this during the playtest.
+
+**Fix (planned):** gate the bury branch on the actual phase
+(`state.phase == GamePhase.KITTY`), not on truncation. Coordinate with the server
+change to make the bury signal phase-explicit (see shengji-server session log).
+
+### Related design note — validate, don't enumerate (KITTY + multi-throws)
+
+Discussed but not yet implemented (engine-side; see shengji-engine session log):
+
+- **KITTY needs no enumeration.** Any 6 cards from the dealer's hand is a legal
+  bury — the constraint is just a **sub-multiset** check (6 cards, none used more
+  times than held; identical cards from different decks are fine). The agent's
+  `choose_kitty_bury` already produces 6 cards directly; the engine/server should
+  validate directly rather than enumerating C(32,6).
+- **Multi-card throws (甩牌)** will move the engine toward validating a *submitted*
+  play (staged: logical-suit → type → multi-throw success/penalty) instead of
+  enumerating every legal move. That removes the agent's current "pick from
+  `legal_actions`" menu for those cases, so agents will need a bounded candidate
+  generator (clean combos + a few heuristic throws), not exhaustive enumeration.
